@@ -11,6 +11,9 @@ Recommended: Python 2.3 or later
 Recommended: CJKCodecs and iconv_codec <http://cjkpython.i18n.org/>
 """
 
+import io
+import requests
+
 __version__ = "4.1"# + "$Revision: 1.92 $"[11:15] + "-cvs"
 __license__ = """Copyright (c) 2002-2006, Mark Pilgrim, All rights reserved.
 
@@ -1847,23 +1850,11 @@ def _open_resource(url_file_stream_or_string, etag, modified, agent, referrer, h
         return sys.stdin
 
     if urlparse.urlparse(url_file_stream_or_string)[0] in ('http', 'https', 'ftp'):
-        if not agent:
-            agent = USER_AGENT
-        # test for inline user:password for basic auth
-        auth = None
-        if base64:
-            urltype, rest = urllib.splittype(url_file_stream_or_string)
-            realhost, rest = urllib.splithost(rest)
-            if realhost:
-                user_passwd, realhost = urllib.splituser(realhost)
-                if user_passwd:
-                    url_file_stream_or_string = '%s://%s%s' % (urltype, realhost, rest)
-                    auth = base64.encodestring(user_passwd).strip()
-        # try to open with urllib2 (to use optional headers)
-        request = urllib2.Request(url_file_stream_or_string)
-        request.add_header('User-Agent', agent)
+        headers = {
+            'User-Agent': agent,
+        }
         if etag:
-            request.add_header('If-None-Match', etag)
+            headers['If-None-Match'] = etag
         if modified:
             # format into an RFC 1123-compliant timestamp. We can't use
             # time.strftime() since the %a and %b directives can be affected
@@ -1871,28 +1862,23 @@ def _open_resource(url_file_stream_or_string, etag, modified, agent, referrer, h
             # in English.
             short_weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
             months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-            request.add_header('If-Modified-Since', '%s, %02d %s %04d %02d:%02d:%02d GMT' % (short_weekdays[modified[6]], modified[2], months[modified[1] - 1], modified[0], modified[3], modified[4], modified[5]))
+            headers['If-Modified-Since'] = '%s, %02d %s %04d %02d:%02d:%02d GMT' % (short_weekdays[modified[6]], modified[2], months[modified[1] - 1], modified[0], modified[3], modified[4], modified[5])
         if referrer:
-            request.add_header('Referer', referrer)
+            headers['Referer'] = referrer
         if gzip and zlib:
-            request.add_header('Accept-encoding', 'gzip, deflate')
+            headers['Accept-encoding'] = 'gzip, deflate'
         elif gzip:
-            request.add_header('Accept-encoding', 'gzip')
+            headers['Accept-encoding'] = 'gzip'
         elif zlib:
-            request.add_header('Accept-encoding', 'deflate')
+            headers['Accept-encoding'] = 'deflate'
         else:
-            request.add_header('Accept-encoding', '')
-        if auth:
-            request.add_header('Authorization', 'Basic %s' % auth)
+            headers['Accept-encoding'] = ''
         if ACCEPT_HEADER:
-            request.add_header('Accept', ACCEPT_HEADER)
-        request.add_header('A-IM', 'feed') # RFC 3229 support
-        opener = apply(urllib2.build_opener, tuple([_FeedURLHandler()] + handlers))
-        opener.addheaders = [] # RMK - must clear so we only send our custom User-Agent
-        try:
-            return opener.open(request)
-        finally:
-            opener.close() # JohnD
+            headers['Accept'] = ACCEPT_HEADER
+        headers['A-IM'] = 'feed' # RFC 3229 support
+
+        req = requests.get(url_file_stream_or_string, headers=headers)
+        return io.BytesIO(req.content)
     
     # try to open with native open function (if url_file_stream_or_string is a filename)
     try:
